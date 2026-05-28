@@ -52,7 +52,7 @@ export function DataCenter3DScene({ activeKey, inputs, outputs, onSelect }: Data
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.setSize(mount.clientWidth, mount.clientHeight);
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
     mount.appendChild(renderer.domElement);
 
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -137,12 +137,13 @@ export function DataCenter3DScene({ activeKey, inputs, outputs, onSelect }: Data
 
     frameCamera();
 
-    const clock = new THREE.Clock();
+    let lastTime = performance.now() / 1000;
     let frameId = 0;
 
     const animate = () => {
-      const elapsed = clock.getElapsedTime();
-      const delta = clock.getDelta();
+      const elapsed = performance.now() / 1000;
+      const delta = Math.min(elapsed - lastTime, 0.05);
+      lastTime = elapsed;
       const loadRatio = THREE.MathUtils.clamp(inputsRef.current.itLoadKw / 5000, 0.25, 1);
       const puePressure = THREE.MathUtils.clamp(outputsRef.current.pue - 1, 0.15, 0.8);
 
