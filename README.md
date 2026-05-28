@@ -2,7 +2,7 @@
 
 ![TropicalDC Lab simulator screenshot](public/screenshot.png)
 
-TropicalDC Lab is an interactive web simulator for exploring energy, water, and carbon trade-offs in tropical data centres. It allows users to adjust IT load, cooling strategy, chiller efficiency, airflow assumptions, heat rejection type, and redundancy level to see how these decisions affect PUE, WUE, and estimated annual emissions.
+TropicalDC Lab is an interactive 3D web simulator for exploring energy, water, and carbon trade-offs in tropical data centres. Users can orbit a simplified data-centre room, watch animated cold air, hot return air, chilled water, and grid power paths, click equipment, and adjust operating assumptions to see how decisions affect PUE, WUE, and estimated annual emissions.
 
 This project is an educational estimator and portfolio project focused on the intersection of mechanical engineering, sustainable infrastructure, and software engineering.
 
@@ -12,8 +12,8 @@ Singapore-like tropical operating conditions make data-centre cooling harder. Hi
 
 ## Features
 
-- Interactive PUE simulator with sliders and selectable cooling assumptions.
-- Clickable data-centre schematic for racks, aisles, CRAH/CRAC, pumps, chillers, heat rejection, and grid power.
+- Interactive 3D PUE simulator with orbit, zoom, animated flows, and selectable cooling assumptions.
+- Clickable 3D equipment for racks, aisles, CRAH/CRAC, pumps, chillers, heat rejection, and grid power.
 - Live metric cards for IT load, facility overhead, PUE, WUE, annual energy, carbon, and water.
 - Scenario comparison for baseline air cooling, optimized tropical air cooling, and liquid-cooling-assisted designs.
 - Rule-based recommendations for efficiency, water, high-density racks, and redundancy trade-offs.
@@ -27,6 +27,7 @@ Singapore-like tropical operating conditions make data-centre cooling harder. Hi
 - TypeScript
 - Tailwind CSS
 - Recharts
+- Three.js
 - Vitest
 - Playwright
 
