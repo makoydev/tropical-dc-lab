@@ -3,8 +3,9 @@
 import { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { formatKw, formatNumber } from "@/lib/format";
 import type { SimulationInputs, SimulationOutputs } from "@/lib/types";
-import type { ComponentKey } from "@/components/simulator/DataCenterSchematic";
+import { schematicComponents, type ComponentKey } from "@/components/simulator/DataCenterSchematic";
 
 interface DataCenter3DSceneProps {
   activeKey: ComponentKey;
@@ -138,6 +139,8 @@ export function DataCenter3DScene({ activeKey, inputs, outputs, onSelect }: Data
     frameCamera();
 
     let lastTime = performance.now() / 1000;
+    let focusedKey = activeKeyRef.current;
+    let focusUntil = lastTime + 0.8;
     let frameId = 0;
 
     const animate = () => {
@@ -146,6 +149,17 @@ export function DataCenter3DScene({ activeKey, inputs, outputs, onSelect }: Data
       lastTime = elapsed;
       const loadRatio = THREE.MathUtils.clamp(inputsRef.current.itLoadKw / 5000, 0.25, 1);
       const puePressure = THREE.MathUtils.clamp(outputsRef.current.pue - 1, 0.15, 0.8);
+
+      if (activeKeyRef.current !== focusedKey) {
+        focusedKey = activeKeyRef.current;
+        focusUntil = elapsed + 1.25;
+      }
+
+      if (elapsed < focusUntil) {
+        const preset = getCameraPreset(focusedKey, mount.clientWidth < 640);
+        camera.position.lerp(preset.position, 0.06);
+        controls.target.lerp(preset.target, 0.08);
+      }
 
       fans.forEach((fan) => {
         fan.rotation.z += delta * (3 + loadRatio * 8);
@@ -216,18 +230,44 @@ export function DataCenter3DScene({ activeKey, inputs, outputs, onSelect }: Data
     };
   }, []);
 
+  const activeComponent = schematicComponents.find((component) => component.key === activeKey) ?? schematicComponents[0];
+
   return (
     <div className="relative overflow-hidden bg-[#0d1b18]">
       <div className="pointer-events-none absolute left-4 right-4 top-4 z-10 flex items-start justify-between gap-3 text-white">
         <div>
           <p className="text-xs font-semibold uppercase text-[#79d6c9]">Live 3D simulator</p>
           <p className="text-sm text-white/72">Drag to orbit. Scroll to zoom. Click equipment to inspect it.</p>
+          <p className="mt-2 text-sm font-semibold text-white">Inspecting: {activeComponent.label}</p>
         </div>
-        <div className="hidden gap-2 text-xs md:flex">
-          <span className="rounded bg-[#0f8b8d] px-2 py-1">cold air</span>
-          <span className="rounded bg-[#c16a15] px-2 py-1">hot air</span>
-          <span className="rounded bg-[#4e79a7] px-2 py-1">chilled water</span>
+        <div className="hidden flex-col items-end gap-3 md:flex">
+          <div className="flex gap-2 text-xs">
+            <span className="rounded bg-[#0f8b8d] px-2 py-1">cold air</span>
+            <span className="rounded bg-[#c16a15] px-2 py-1">hot air</span>
+            <span className="rounded bg-[#4e79a7] px-2 py-1">chilled water</span>
+          </div>
+          <div className="grid grid-cols-3 gap-2 text-right">
+            <SceneMetric label="PUE" value={formatNumber(outputs.pue, 2)} />
+            <SceneMetric label="IT Load" value={formatKw(outputs.itPowerKw)} />
+            <SceneMetric label="WUE" value={`${formatNumber(outputs.wueLitresPerKwh, 1)} L/kWh`} />
+          </div>
         </div>
+      </div>
+      <div className="absolute bottom-4 left-4 right-4 z-10 flex gap-2 overflow-x-auto pb-1">
+        {schematicComponents.map((component) => (
+          <button
+            className={`shrink-0 rounded border px-3 py-2 text-xs font-semibold text-white transition ${
+              activeKey === component.key
+                ? "border-white bg-[var(--accent)]"
+                : "border-white/20 bg-[#10201d]/80 hover:border-white/60"
+            }`}
+            key={component.key}
+            onClick={() => onSelect(component.key)}
+            type="button"
+          >
+            {component.label}
+          </button>
+        ))}
       </div>
       <div
         aria-label="Interactive 3D tropical data centre simulator"
@@ -236,6 +276,54 @@ export function DataCenter3DScene({ activeKey, inputs, outputs, onSelect }: Data
       />
     </div>
   );
+}
+
+function SceneMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded border border-white/15 bg-[#10201d]/80 px-3 py-2">
+      <p className="text-[10px] font-semibold uppercase text-[#79d6c9]">{label}</p>
+      <p className="mt-1 text-sm font-semibold text-white">{value}</p>
+    </div>
+  );
+}
+
+function getCameraPreset(key: ComponentKey, compact: boolean) {
+  const presets: Record<ComponentKey, { position: THREE.Vector3; target: THREE.Vector3 }> = {
+    racks: {
+      position: new THREE.Vector3(7.8, 5.9, compact ? 17 : 11.5),
+      target: new THREE.Vector3(-2.5, 1.35, 0.2),
+    },
+    coldAisle: {
+      position: new THREE.Vector3(4.6, 4.8, compact ? 14 : 8.8),
+      target: new THREE.Vector3(-2.4, 1.15, 0),
+    },
+    hotAisle: {
+      position: new THREE.Vector3(4.4, 5.2, compact ? -13 : -8.6),
+      target: new THREE.Vector3(-2.3, 1.35, -2.45),
+    },
+    crah: {
+      position: new THREE.Vector3(8.2, 4.7, compact ? 10 : 6.2),
+      target: new THREE.Vector3(2.55, 1.05, 0),
+    },
+    pump: {
+      position: new THREE.Vector3(8.6, 4.4, compact ? -8 : -5.2),
+      target: new THREE.Vector3(5.2, 0.9, -2.6),
+    },
+    chiller: {
+      position: new THREE.Vector3(9.4, 4.6, compact ? 4.8 : 2.8),
+      target: new THREE.Vector3(5.4, 0.85, 0),
+    },
+    tower: {
+      position: new THREE.Vector3(9.5, 4.9, compact ? 9 : 5.8),
+      target: new THREE.Vector3(6.4, 1.2, 2.6),
+    },
+    grid: {
+      position: new THREE.Vector3(-1.8, 5.1, compact ? 12 : 8),
+      target: new THREE.Vector3(-6.7, 1.5, 3.4),
+    },
+  };
+
+  return presets[key];
 }
 
 function buildRoom(scene: THREE.Scene) {
@@ -250,6 +338,20 @@ function buildRoom(scene: THREE.Scene) {
   const grid = new THREE.GridHelper(15, 15, 0x6aa69b, 0x28433d);
   grid.position.y = 0.01;
   scene.add(grid);
+
+  const tileMaterial = new THREE.MeshStandardMaterial({ color: 0x213a34, roughness: 0.68, metalness: 0.08 });
+  const ventMaterial = new THREE.MeshStandardMaterial({ color: 0x0f8b8d, emissive: 0x0f8b8d, emissiveIntensity: 0.18 });
+  for (let x = -5.8; x <= 1.8; x += 1.1) {
+    const tile = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.018, 0.86), tileMaterial.clone());
+    tile.position.set(x, 0.035, 0);
+    scene.add(tile);
+
+    for (let slot = -0.24; slot <= 0.24; slot += 0.16) {
+      const vent = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.012, 0.54), ventMaterial.clone());
+      vent.position.set(x + slot, 0.052, 0);
+      scene.add(vent);
+    }
+  }
 
   const backWall = new THREE.Mesh(
     new THREE.BoxGeometry(15, 3.2, 0.14),
@@ -276,6 +378,14 @@ function buildRoom(scene: THREE.Scene) {
     rail.position.set(i, 3.15, 0);
     ceilingRails.add(rail);
   }
+  for (let i = -5; i <= 5; i += 2.5) {
+    const light = new THREE.Mesh(
+      new THREE.BoxGeometry(1.1, 0.035, 0.16),
+      new THREE.MeshStandardMaterial({ color: 0xe5fff8, emissive: 0x79d6c9, emissiveIntensity: 0.7 }),
+    );
+    light.position.set(i, 3.08, -3.65);
+    ceilingRails.add(light);
+  }
   scene.add(ceilingRails);
 }
 
@@ -299,6 +409,22 @@ function buildRackRows(scene: THREE.Scene, register: (object: THREE.Object3D, ke
       register(door, "racks");
       rack.add(door);
 
+      for (let slatIndex = 0; slatIndex < 8; slatIndex += 1) {
+        const slat = new THREE.Mesh(
+          new THREE.BoxGeometry(0.52, 0.018, 0.018),
+          new THREE.MeshStandardMaterial({ color: 0x6f8881, emissive: 0x0f8b8d, emissiveIntensity: 0.08 }),
+        );
+        slat.position.set(0, -0.76 + slatIndex * 0.2, z < 0 ? 0.5 : -0.5);
+        rack.add(slat);
+      }
+
+      const handle = new THREE.Mesh(
+        new THREE.BoxGeometry(0.04, 0.42, 0.035),
+        new THREE.MeshStandardMaterial({ color: 0xdbe7e2, roughness: 0.35, metalness: 0.7 }),
+      );
+      handle.position.set(0.26, 0, z < 0 ? 0.52 : -0.52);
+      rack.add(handle);
+
       for (let ledIndex = 0; ledIndex < 4; ledIndex += 1) {
         const led = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.04, 0.03), ledMaterial.clone());
         led.position.set(-0.27 + ledIndex * 0.18, 0.65, z < 0 ? 0.51 : -0.51);
@@ -307,6 +433,22 @@ function buildRackRows(scene: THREE.Scene, register: (object: THREE.Object3D, ke
 
       rack.position.set(-4.9 + i * 1.05, 1.2, z);
       rackGroup.add(rack);
+    }
+  });
+
+  const trayMaterial = new THREE.MeshStandardMaterial({ color: 0x4c6b63, roughness: 0.45, metalness: 0.35 });
+  [-1.7, 1.7].forEach((z) => {
+    const tray = new THREE.Mesh(new THREE.BoxGeometry(6.8, 0.08, 0.16), trayMaterial.clone());
+    tray.position.set(-2.25, 2.55, z);
+    rackGroup.add(tray);
+    for (let i = 0; i < 7; i += 1) {
+      const cable = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.018, 0.018, 6.6, 8),
+        new THREE.MeshStandardMaterial({ color: i % 2 === 0 ? 0x79d6c9 : 0xf6a94c, roughness: 0.4 }),
+      );
+      cable.rotation.z = Math.PI / 2;
+      cable.position.set(-2.25, 2.63 + i * 0.018, z - 0.05 + i * 0.016);
+      rackGroup.add(cable);
     }
   });
 
@@ -323,6 +465,28 @@ function buildAisles(scene: THREE.Scene, register: (object: THREE.Object3D, key:
   register(cold, "coldAisle");
   scene.add(cold);
 
+  const panelMaterial = new THREE.MeshStandardMaterial({
+    color: 0x79d6c9,
+    emissive: 0x0f8b8d,
+    emissiveIntensity: 0.12,
+    transparent: true,
+    opacity: 0.18,
+    roughness: 0.2,
+    metalness: 0.05,
+  });
+
+  [-0.62, 0.62].forEach((z) => {
+    const panel = new THREE.Mesh(new THREE.BoxGeometry(6.8, 2.15, 0.04), panelMaterial.clone());
+    panel.position.set(-2.25, 1.26, z);
+    register(panel, "coldAisle");
+    scene.add(panel);
+  });
+
+  const canopy = new THREE.Mesh(new THREE.BoxGeometry(6.8, 0.05, 1.28), panelMaterial.clone());
+  canopy.position.set(-2.25, 2.36, 0);
+  register(canopy, "coldAisle");
+  scene.add(canopy);
+
   const hotA = new THREE.Mesh(
     new THREE.BoxGeometry(6.7, 0.04, 0.7),
     new THREE.MeshStandardMaterial({ color: 0xc16a15, emissive: 0xc16a15, emissiveIntensity: 0.2, transparent: true, opacity: 0.34 }),
@@ -336,6 +500,25 @@ function buildAisles(scene: THREE.Scene, register: (object: THREE.Object3D, key:
   hotB.position.z = 2.65;
   register(hotB, "hotAisle");
   scene.add(hotB);
+
+  [-2.72, 2.72].forEach((z) => {
+    for (let i = 0; i < 5; i += 1) {
+      const plume = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.18 + i * 0.02, 0.08, 0.9, 18),
+        new THREE.MeshStandardMaterial({
+          color: 0xf6a94c,
+          emissive: 0xc16a15,
+          emissiveIntensity: 0.18,
+          transparent: true,
+          opacity: 0.12,
+          roughness: 0.8,
+        }),
+      );
+      plume.position.set(-4.8 + i * 1.2, 1.65 + i * 0.05, z);
+      register(plume, "hotAisle");
+      scene.add(plume);
+    }
+  });
 
   scene.add(createLabel("cold aisle", -2.25, 0.32, 0));
   scene.add(createLabel("hot aisles", -5.3, 0.36, -2.65));
@@ -356,6 +539,23 @@ function buildCoolingUnits(
     body.receiveShadow = true;
     register(body, "crah");
     crah.add(body);
+
+    const coil = new THREE.Mesh(
+      new THREE.BoxGeometry(0.05, 1.05, 0.72),
+      new THREE.MeshStandardMaterial({ color: 0x79d6c9, emissive: 0x0f8b8d, emissiveIntensity: 0.22, roughness: 0.35 }),
+    );
+    coil.position.set(-0.59, 0.35, 0);
+    register(coil, "crah");
+    crah.add(coil);
+
+    for (let ventIndex = 0; ventIndex < 5; ventIndex += 1) {
+      const vent = new THREE.Mesh(
+        new THREE.BoxGeometry(0.04, 0.04, 0.72),
+        new THREE.MeshStandardMaterial({ color: 0xdbe7e2, roughness: 0.45, metalness: 0.45 }),
+      );
+      vent.position.set(-0.62, -0.42 + ventIndex * 0.18, 0);
+      crah.add(vent);
+    }
 
     const fan = createFan(fanMaterial.clone());
     fan.position.set(-0.56, 0.28, 0);
@@ -384,6 +584,13 @@ function buildPlant(
   pumpBody.castShadow = true;
   register(pumpBody, "pump");
   pump.add(pumpBody);
+  const pumpBase = new THREE.Mesh(
+    new THREE.BoxGeometry(1.35, 0.16, 0.72),
+    new THREE.MeshStandardMaterial({ color: 0x1a2e29, roughness: 0.55, metalness: 0.25 }),
+  );
+  pumpBase.position.y = -0.48;
+  register(pumpBase, "pump");
+  pump.add(pumpBase);
   const pumpFan = createFan(new THREE.MeshStandardMaterial({ color: 0x91e6d9, emissive: 0x0f8b8d, emissiveIntensity: 0.3 }));
   pumpFan.scale.setScalar(0.7);
   pumpFan.position.set(0.52, 0, 0);
@@ -402,7 +609,33 @@ function buildPlant(
   register(chiller, "chiller");
   scene.add(chiller);
 
+  for (let i = 0; i < 6; i += 1) {
+    const coilLine = new THREE.Mesh(
+      new THREE.BoxGeometry(0.05, 0.82, 0.035),
+      new THREE.MeshStandardMaterial({ color: 0x79d6c9, emissive: 0x0f8b8d, emissiveIntensity: 0.18 }),
+    );
+    coilLine.position.set(4.48, 0.75, -0.42 + i * 0.17);
+    register(coilLine, "chiller");
+    scene.add(coilLine);
+  }
+
+  const controlPanel = new THREE.Mesh(
+    new THREE.BoxGeometry(0.04, 0.42, 0.5),
+    new THREE.MeshStandardMaterial({ color: 0x111f1d, emissive: 0x79d6c9, emissiveIntensity: 0.12 }),
+  );
+  controlPanel.position.set(6.32, 0.78, 0);
+  register(controlPanel, "chiller");
+  scene.add(controlPanel);
+
   const tower = new THREE.Group();
+  const basin = new THREE.Mesh(
+    new THREE.BoxGeometry(1.6, 0.22, 1.6),
+    new THREE.MeshStandardMaterial({ color: 0x203631, roughness: 0.58, metalness: 0.2 }),
+  );
+  basin.position.y = 0.1;
+  register(basin, "tower");
+  tower.add(basin);
+
   const towerBody = new THREE.Mesh(
     new THREE.CylinderGeometry(0.65, 0.9, 1.8, 6),
     new THREE.MeshStandardMaterial({ color: 0x31443f, roughness: 0.55, metalness: 0.2 }),
@@ -415,6 +648,20 @@ function buildPlant(
   topFan.position.y = 1.86;
   fans.push(topFan);
   tower.add(topFan);
+  for (let i = 0; i < 4; i += 1) {
+    const mist = new THREE.Mesh(
+      new THREE.SphereGeometry(0.18 + i * 0.04, 14, 14),
+      new THREE.MeshStandardMaterial({
+        color: 0xdbe7e2,
+        emissive: 0x79d6c9,
+        emissiveIntensity: 0.1,
+        transparent: true,
+        opacity: 0.12,
+      }),
+    );
+    mist.position.set(-0.15 + i * 0.1, 2.1 + i * 0.18, 0.05 - i * 0.08);
+    tower.add(mist);
+  }
   tower.position.set(6.4, 0, 2.6);
   scene.add(tower);
 

@@ -17,7 +17,11 @@ test("simulator renders the 3D data centre and updates controls", async ({ page 
 
   const itLoad = page.getByLabel("IT Load");
   await itLoad.fill("2500");
-  await expect(page.getByText("2,500 kW")).toBeVisible();
+  await expect(page.getByText("2,500 kW").first()).toBeVisible();
+
+  await page.getByRole("button", { name: "Heat Rejection" }).click();
+  await expect(page.getByRole("heading", { name: "Heat Rejection" })).toBeVisible();
+  await expect(page.getByText("Inspecting: Heat Rejection")).toBeVisible();
 });
 
 test("3D scene renders on mobile viewport", async ({ page }) => {
