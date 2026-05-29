@@ -5,7 +5,7 @@ import { calculateSimulation } from "@/lib/calculations/simulation";
 import { defaultInputs } from "@/lib/presets/defaults";
 import type { SimulationInputs } from "@/lib/types";
 import { ControlPanel } from "@/components/simulator/ControlPanel";
-import { DataCenter3DScene } from "@/components/simulator/DataCenter3DScene";
+import { DataCenter3DScene, dataCenterLayouts, type DataCenterLayoutKey } from "@/components/simulator/DataCenter3DScene";
 import { ComponentInfoPanel, type ComponentKey } from "@/components/simulator/DataCenterSchematic";
 import { MetricCards } from "@/components/simulator/MetricCards";
 import { EnergyBreakdownChart } from "@/components/charts/EnergyBreakdownChart";
@@ -13,14 +13,57 @@ import { EnergyBreakdownChart } from "@/components/charts/EnergyBreakdownChart";
 export default function SimulatorClient() {
   const [inputs, setInputs] = useState<SimulationInputs>(defaultInputs);
   const [activeComponent, setActiveComponent] = useState<ComponentKey>("racks");
+  const [layoutKey, setLayoutKey] = useState<DataCenterLayoutKey>("contained_air_hall");
   const outputs = useMemo(() => calculateSimulation(inputs), [inputs]);
+  const applyLayout = (nextLayout: DataCenterLayoutKey) => {
+    setLayoutKey(nextLayout);
+    setActiveComponent("racks");
+
+    if (nextLayout === "contained_air_hall") {
+      setInputs({
+        ...defaultInputs,
+        itLoadKw: inputs.itLoadKw,
+        itUtilizationPercent: inputs.itUtilizationPercent,
+      });
+      return;
+    }
+
+    if (nextLayout === "liquid_cooling_pod") {
+      setInputs({
+        ...inputs,
+        rackDensityKw: 50,
+        coolingType: "direct_to_chip_liquid_cooling",
+        chillerCop: 6.9,
+        supplyAirTempC: 28,
+        fanPowerFactor: 0.035,
+        pumpPowerFactor: 0.075,
+        heatRejectionType: "hybrid_cooling",
+      });
+      return;
+    }
+
+    setInputs({
+      ...inputs,
+      rackDensityKw: 15,
+      coolingType: "optimized_air_cooling",
+      chillerCop: 6.4,
+      supplyAirTempC: 26,
+      fanPowerFactor: 0.06,
+      pumpPowerFactor: 0.035,
+      heatRejectionType: "hybrid_cooling",
+      climatePreset: "singapore_typical_tropical_day",
+      redundancyLevel: "N+1",
+    });
+  };
   const applyQuickScenario = (scenario: "peak" | "efficient" | "liquid" | "reset") => {
     if (scenario === "reset") {
+      setLayoutKey("contained_air_hall");
       setInputs(defaultInputs);
       return;
     }
 
     if (scenario === "peak") {
+      setLayoutKey("contained_air_hall");
       setInputs({
         ...inputs,
         itLoadKw: 4200,
@@ -38,6 +81,7 @@ export default function SimulatorClient() {
     }
 
     if (scenario === "efficient") {
+      setLayoutKey("hybrid_cooling_campus");
       setInputs({
         ...inputs,
         coolingType: "optimized_air_cooling",
@@ -53,6 +97,7 @@ export default function SimulatorClient() {
       return;
     }
 
+    setLayoutKey("liquid_cooling_pod");
     setInputs({
       ...inputs,
       rackDensityKw: 50,
@@ -79,7 +124,35 @@ export default function SimulatorClient() {
         </div>
       </div>
 
-      <DataCenter3DScene activeKey={activeComponent} inputs={inputs} onSelect={setActiveComponent} outputs={outputs} />
+      <div className="mx-auto max-w-7xl px-4 pb-5 sm:px-6">
+        <div className="rounded-lg border border-[var(--line)] bg-white p-4 shadow-sm">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <h2 className="text-base font-semibold text-[var(--ink)]">Facility layouts</h2>
+              <p className="mt-1 text-sm text-[var(--muted)]">Switch the physical arrangement and matching assumptions.</p>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-3">
+              {dataCenterLayouts.map((layout) => (
+                <button
+                  className={`rounded border px-3 py-2 text-left transition ${
+                    layout.key === layoutKey
+                      ? "border-[var(--accent)] bg-[#e8f7f5]"
+                      : "border-[var(--line)] bg-[var(--panel-strong)] hover:border-[var(--accent)]"
+                  }`}
+                  key={layout.key}
+                  onClick={() => applyLayout(layout.key)}
+                  type="button"
+                >
+                  <span className="block text-sm font-semibold text-[var(--foreground)]">{layout.label}</span>
+                  <span className="mt-1 block text-xs leading-5 text-[var(--muted)]">{layout.description}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <DataCenter3DScene activeKey={activeComponent} inputs={inputs} layoutKey={layoutKey} onSelect={setActiveComponent} outputs={outputs} />
 
       <div className="mx-auto grid max-w-7xl gap-6 px-4 py-6 sm:px-6 xl:grid-cols-[0.78fr_1.22fr]">
         <section className="space-y-5">

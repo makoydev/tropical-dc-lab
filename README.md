@@ -13,6 +13,7 @@ Singapore-like tropical operating conditions make data-centre cooling harder. Hi
 ## Features
 
 - Interactive 3D PUE simulator with orbit, zoom, guided equipment focus, animated flows, and selectable cooling assumptions.
+- Viewable facility layouts: contained air hall, high-density liquid-cooling pod, and hybrid cooling campus.
 - Clickable 3D equipment for racks, aisles, CRAH/CRAC, pumps, chillers, heat rejection, and grid power.
 - Live metric cards for IT load, facility overhead, PUE, WUE, annual energy, carbon, and water.
 - Scenario comparison for baseline air cooling, optimized tropical air cooling, and liquid-cooling-assisted designs.

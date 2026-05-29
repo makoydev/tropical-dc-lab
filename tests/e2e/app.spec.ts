@@ -19,9 +19,14 @@ test("simulator renders the 3D data centre and updates controls", async ({ page 
   await itLoad.fill("2500");
   await expect(page.getByText("2,500 kW").first()).toBeVisible();
 
-  await page.getByRole("button", { name: "Heat Rejection" }).click();
+  await page.getByRole("button", { exact: true, name: "Heat Rejection" }).click();
   await expect(page.getByRole("heading", { name: "Heat Rejection" })).toBeVisible();
   await expect(page.getByText("Inspecting: Heat Rejection")).toBeVisible();
+
+  await page.getByRole("button", { name: /Liquid Cooling Pod/ }).click();
+  await expect(page.getByText("Layout: Liquid Cooling Pod")).toBeVisible();
+  await expect(page.getByLabel("Rack Density")).toHaveValue("50");
+  await expect.poll(() => canvasHasRenderedPixels(page)).toBe(true);
 
   await page.getByRole("button", { name: "Peak tropical day" }).click();
   await expect(page.getByText("4,200 kW").first()).toBeVisible();

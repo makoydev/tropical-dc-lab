@@ -10,6 +10,7 @@ import { schematicComponents, type ComponentKey } from "@/components/simulator/D
 interface DataCenter3DSceneProps {
   activeKey: ComponentKey;
   inputs: SimulationInputs;
+  layoutKey: DataCenterLayoutKey;
   outputs: SimulationOutputs;
   onSelect: (key: ComponentKey) => void;
 }
@@ -23,7 +24,31 @@ interface FlowParticle {
   kind: "cold" | "hot" | "water";
 }
 
-export function DataCenter3DScene({ activeKey, inputs, outputs, onSelect }: DataCenter3DSceneProps) {
+export type DataCenterLayoutKey = "contained_air_hall" | "liquid_cooling_pod" | "hybrid_cooling_campus";
+
+export const dataCenterLayouts: {
+  key: DataCenterLayoutKey;
+  label: string;
+  description: string;
+}[] = [
+  {
+    key: "contained_air_hall",
+    label: "Contained Air Hall",
+    description: "Two rack rows, cold-aisle containment, CRAH units, chilled water, and tower heat rejection.",
+  },
+  {
+    key: "liquid_cooling_pod",
+    label: "Liquid Cooling Pod",
+    description: "Dense rack pod with liquid manifolds, fewer room air units, stronger chilled-water loop, and compact heat rejection.",
+  },
+  {
+    key: "hybrid_cooling_campus",
+    label: "Hybrid Cooling Campus",
+    description: "Larger hall with optimized air cooling, hybrid dry-cooler/tower heat rejection, and higher planning visibility.",
+  },
+];
+
+export function DataCenter3DScene({ activeKey, inputs, layoutKey, outputs, onSelect }: DataCenter3DSceneProps) {
   const mountRef = useRef<HTMLDivElement | null>(null);
   const onSelectRef = useRef(onSelect);
   const activeKeyRef = useRef(activeKey);
@@ -42,6 +67,7 @@ export function DataCenter3DScene({ activeKey, inputs, outputs, onSelect }: Data
     if (!mount) {
       return;
     }
+    const layout = dataCenterLayouts.find((item) => item.key === layoutKey) ?? dataCenterLayouts[0];
 
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x0d1b18);
@@ -89,14 +115,15 @@ export function DataCenter3DScene({ activeKey, inputs, outputs, onSelect }: Data
       keyedObjects.set(key, [...(keyedObjects.get(key) ?? []), object]);
     };
 
-    buildRoom(scene);
-    buildRackRows(scene, register);
-    buildAisles(scene, register, thermalPlumes);
-    buildCoolingUnits(scene, register, fans);
-    buildPlant(scene, register, fans);
+    buildRoom(scene, layoutKey);
+    buildRackRows(scene, register, layoutKey);
+    buildAisles(scene, register, thermalPlumes, layoutKey);
+    buildCoolingUnits(scene, register, fans, layoutKey);
+    buildPlant(scene, register, fans, layoutKey);
     buildGrid(scene, register, pulses);
-    buildFlow(scene, flowParticles);
-    buildLoopPipes(scene);
+    buildFlow(scene, flowParticles, layoutKey);
+    buildLoopPipes(scene, layoutKey);
+    scene.add(createLabel(`layout: ${layout.label}`, 0, 3.25, 3.7));
 
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
@@ -241,7 +268,7 @@ export function DataCenter3DScene({ activeKey, inputs, outputs, onSelect }: Data
       });
       mount.removeChild(renderer.domElement);
     };
-  }, []);
+  }, [layoutKey]);
 
   const activeComponent = schematicComponents.find((component) => component.key === activeKey) ?? schematicComponents[0];
 
@@ -251,6 +278,7 @@ export function DataCenter3DScene({ activeKey, inputs, outputs, onSelect }: Data
         <div>
           <p className="text-xs font-semibold uppercase text-[#79d6c9]">Live 3D simulator</p>
           <p className="text-sm text-white/72">Drag to orbit. Scroll to zoom. Click equipment to inspect it.</p>
+          <p className="mt-2 text-sm font-semibold text-[#79d6c9]">Layout: {dataCenterLayouts.find((item) => item.key === layoutKey)?.label}</p>
           <p className="mt-2 text-sm font-semibold text-white">Inspecting: {activeComponent.label}</p>
         </div>
         <div className="hidden flex-col items-end gap-3 md:flex">
@@ -339,7 +367,7 @@ function getCameraPreset(key: ComponentKey, compact: boolean) {
   return presets[key];
 }
 
-function buildRoom(scene: THREE.Scene) {
+function buildRoom(scene: THREE.Scene, layoutKey: DataCenterLayoutKey) {
   const floor = new THREE.Mesh(
     new THREE.BoxGeometry(15, 0.12, 9),
     new THREE.MeshStandardMaterial({ color: 0x182925, roughness: 0.72, metalness: 0.08 }),
@@ -354,7 +382,8 @@ function buildRoom(scene: THREE.Scene) {
 
   const tileMaterial = new THREE.MeshStandardMaterial({ color: 0x213a34, roughness: 0.68, metalness: 0.08 });
   const ventMaterial = new THREE.MeshStandardMaterial({ color: 0x0f8b8d, emissive: 0x0f8b8d, emissiveIntensity: 0.18 });
-  for (let x = -5.8; x <= 1.8; x += 1.1) {
+  const ventEnd = layoutKey === "hybrid_cooling_campus" ? 3.2 : layoutKey === "liquid_cooling_pod" ? 0.8 : 1.8;
+  for (let x = -5.8; x <= ventEnd; x += 1.1) {
     const tile = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.018, 0.86), tileMaterial.clone());
     tile.position.set(x, 0.035, 0);
     scene.add(tile);
@@ -400,16 +429,30 @@ function buildRoom(scene: THREE.Scene) {
     ceilingRails.add(light);
   }
   scene.add(ceilingRails);
+
+  if (layoutKey === "hybrid_cooling_campus") {
+    const planningLane = new THREE.Mesh(
+      new THREE.BoxGeometry(12, 0.025, 0.55),
+      new THREE.MeshStandardMaterial({ color: 0x4e79a7, emissive: 0x4e79a7, emissiveIntensity: 0.18, transparent: true, opacity: 0.32 }),
+    );
+    planningLane.position.set(-0.5, 0.07, 3.35);
+    scene.add(planningLane);
+  }
 }
 
-function buildRackRows(scene: THREE.Scene, register: (object: THREE.Object3D, key: ComponentKey) => void) {
+function buildRackRows(scene: THREE.Scene, register: (object: THREE.Object3D, key: ComponentKey) => void, layoutKey: DataCenterLayoutKey) {
   const rackGroup = new THREE.Group();
   const rackMaterial = new THREE.MeshStandardMaterial({ color: 0x111f1d, roughness: 0.45, metalness: 0.4 });
   const doorMaterial = new THREE.MeshStandardMaterial({ color: 0x233834, roughness: 0.35, metalness: 0.55 });
   const ledMaterial = new THREE.MeshStandardMaterial({ color: 0x79d6c9, emissive: 0x0f8b8d, emissiveIntensity: 0.5 });
 
-  [-1.7, 1.7].forEach((z) => {
-    for (let i = 0; i < 6; i += 1) {
+  const rackRows = layoutKey === "liquid_cooling_pod" ? [-2.2, -0.75, 0.75, 2.2] : layoutKey === "hybrid_cooling_campus" ? [-2.25, 0, 2.25] : [-1.7, 1.7];
+  const rackCount = layoutKey === "liquid_cooling_pod" ? 4 : layoutKey === "hybrid_cooling_campus" ? 7 : 6;
+  const rackStart = layoutKey === "hybrid_cooling_campus" ? -5.55 : layoutKey === "liquid_cooling_pod" ? -4.75 : -4.9;
+  const rackSpacing = layoutKey === "hybrid_cooling_campus" ? 0.92 : 1.05;
+
+  rackRows.forEach((z) => {
+    for (let i = 0; i < rackCount; i += 1) {
       const rack = new THREE.Group();
       const body = new THREE.Mesh(new THREE.BoxGeometry(0.78, 2.4, 0.9), rackMaterial.clone());
       body.castShadow = true;
@@ -444,15 +487,16 @@ function buildRackRows(scene: THREE.Scene, register: (object: THREE.Object3D, ke
         rack.add(led);
       }
 
-      rack.position.set(-4.9 + i * 1.05, 1.2, z);
+      rack.position.set(rackStart + i * rackSpacing, 1.2, z);
       rackGroup.add(rack);
     }
   });
 
   const trayMaterial = new THREE.MeshStandardMaterial({ color: 0x4c6b63, roughness: 0.45, metalness: 0.35 });
-  [-1.7, 1.7].forEach((z) => {
-    const tray = new THREE.Mesh(new THREE.BoxGeometry(6.8, 0.08, 0.16), trayMaterial.clone());
-    tray.position.set(-2.25, 2.55, z);
+  rackRows.forEach((z) => {
+    const trayLength = rackCount * rackSpacing + 0.5;
+    const tray = new THREE.Mesh(new THREE.BoxGeometry(trayLength, 0.08, 0.16), trayMaterial.clone());
+    tray.position.set(rackStart + ((rackCount - 1) * rackSpacing) / 2, 2.55, z);
     rackGroup.add(tray);
     for (let i = 0; i < 7; i += 1) {
       const cable = new THREE.Mesh(
@@ -460,12 +504,23 @@ function buildRackRows(scene: THREE.Scene, register: (object: THREE.Object3D, ke
         new THREE.MeshStandardMaterial({ color: i % 2 === 0 ? 0x79d6c9 : 0xf6a94c, roughness: 0.4 }),
       );
       cable.rotation.z = Math.PI / 2;
-      cable.position.set(-2.25, 2.63 + i * 0.018, z - 0.05 + i * 0.016);
+      cable.position.set(rackStart + ((rackCount - 1) * rackSpacing) / 2, 2.63 + i * 0.018, z - 0.05 + i * 0.016);
       rackGroup.add(cable);
     }
   });
 
-  rackGroup.add(createLabel("IT racks", -2.25, 2.85, 2.38));
+  if (layoutKey === "liquid_cooling_pod") {
+    const manifoldMaterial = new THREE.MeshStandardMaterial({ color: 0x4e79a7, emissive: 0x4e79a7, emissiveIntensity: 0.32, roughness: 0.3, metalness: 0.35 });
+    [-2.85, 2.85].forEach((z) => {
+      const manifold = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 5.1, 16), manifoldMaterial.clone());
+      manifold.rotation.z = Math.PI / 2;
+      manifold.position.set(-3.2, 1.9, z);
+      register(manifold, "pump");
+      rackGroup.add(manifold);
+    });
+  }
+
+  rackGroup.add(createLabel("IT racks", -2.25, 2.85, layoutKey === "liquid_cooling_pod" ? 2.9 : 2.38));
   scene.add(rackGroup);
 }
 
@@ -473,9 +528,12 @@ function buildAisles(
   scene: THREE.Scene,
   register: (object: THREE.Object3D, key: ComponentKey) => void,
   thermalPlumes: THREE.Mesh<THREE.CylinderGeometry, THREE.MeshStandardMaterial>[],
+  layoutKey: DataCenterLayoutKey,
 ) {
+  const coldLength = layoutKey === "hybrid_cooling_campus" ? 7.4 : layoutKey === "liquid_cooling_pod" ? 5.3 : 6.7;
+  const coldWidth = layoutKey === "liquid_cooling_pod" ? 0.72 : 0.9;
   const cold = new THREE.Mesh(
-    new THREE.BoxGeometry(6.7, 0.04, 0.9),
+    new THREE.BoxGeometry(coldLength, 0.04, coldWidth),
     new THREE.MeshStandardMaterial({ color: 0x0f8b8d, emissive: 0x0f8b8d, emissiveIntensity: 0.24, transparent: true, opacity: 0.42 }),
   );
   cold.position.set(-2.25, 0.05, 0);
@@ -492,20 +550,22 @@ function buildAisles(
     metalness: 0.05,
   });
 
-  [-0.62, 0.62].forEach((z) => {
-    const panel = new THREE.Mesh(new THREE.BoxGeometry(6.8, 2.15, 0.04), panelMaterial.clone());
+  const panelZ = layoutKey === "liquid_cooling_pod" ? [-0.42, 0.42] : [-0.62, 0.62];
+  panelZ.forEach((z) => {
+    const panel = new THREE.Mesh(new THREE.BoxGeometry(coldLength, 2.15, 0.04), panelMaterial.clone());
     panel.position.set(-2.25, 1.26, z);
     register(panel, "coldAisle");
     scene.add(panel);
   });
 
-  const canopy = new THREE.Mesh(new THREE.BoxGeometry(6.8, 0.05, 1.28), panelMaterial.clone());
+  const canopy = new THREE.Mesh(new THREE.BoxGeometry(coldLength, 0.05, layoutKey === "liquid_cooling_pod" ? 0.9 : 1.28), panelMaterial.clone());
   canopy.position.set(-2.25, 2.36, 0);
   register(canopy, "coldAisle");
   scene.add(canopy);
 
+  const hotLength = layoutKey === "hybrid_cooling_campus" ? 7.4 : coldLength;
   const hotA = new THREE.Mesh(
-    new THREE.BoxGeometry(6.7, 0.04, 0.7),
+    new THREE.BoxGeometry(hotLength, 0.04, 0.7),
     new THREE.MeshStandardMaterial({ color: 0xc16a15, emissive: 0xc16a15, emissiveIntensity: 0.2, transparent: true, opacity: 0.34 }),
   );
   hotA.position.set(-2.25, 0.06, -2.65);
@@ -518,8 +578,10 @@ function buildAisles(
   register(hotB, "hotAisle");
   scene.add(hotB);
 
-  [-2.72, 2.72].forEach((z) => {
-    for (let i = 0; i < 5; i += 1) {
+  const plumeRows = layoutKey === "liquid_cooling_pod" ? [-2.95, -1.35, 1.35, 2.95] : [-2.72, 2.72];
+  plumeRows.forEach((z) => {
+    const plumeCount = layoutKey === "hybrid_cooling_campus" ? 6 : 5;
+    for (let i = 0; i < plumeCount; i += 1) {
       const plume = new THREE.Mesh(
         new THREE.CylinderGeometry(0.18 + i * 0.02, 0.08, 0.9, 18),
         new THREE.MeshStandardMaterial({
@@ -539,20 +601,22 @@ function buildAisles(
   });
 
   scene.add(createLabel("cold aisle", -2.25, 0.32, 0));
-  scene.add(createLabel("hot aisles", -5.3, 0.36, -2.65));
+  scene.add(createLabel(layoutKey === "liquid_cooling_pod" ? "dense hot return" : "hot aisles", -5.3, 0.36, -2.65));
 }
 
 function buildCoolingUnits(
   scene: THREE.Scene,
   register: (object: THREE.Object3D, key: ComponentKey) => void,
   fans: THREE.Object3D[],
+  layoutKey: DataCenterLayoutKey,
 ) {
   const unitMaterial = new THREE.MeshStandardMaterial({ color: 0x29443e, roughness: 0.48, metalness: 0.25 });
   const fanMaterial = new THREE.MeshStandardMaterial({ color: 0x79d6c9, emissive: 0x0f8b8d, emissiveIntensity: 0.32 });
+  const unitPositions = layoutKey === "liquid_cooling_pod" ? [-2.1, 2.1] : layoutKey === "hybrid_cooling_campus" ? [-3, -1, 1, 3] : [-2.4, 0, 2.4];
 
-  [-2.4, 0, 2.4].forEach((z) => {
+  unitPositions.forEach((z) => {
     const crah = new THREE.Group();
-    const body = new THREE.Mesh(new THREE.BoxGeometry(1.1, 1.8, 1.0), unitMaterial.clone());
+    const body = new THREE.Mesh(new THREE.BoxGeometry(layoutKey === "liquid_cooling_pod" ? 0.85 : 1.1, layoutKey === "liquid_cooling_pod" ? 1.35 : 1.8, 1.0), unitMaterial.clone());
     body.castShadow = true;
     body.receiveShadow = true;
     register(body, "crah");
@@ -581,17 +645,30 @@ function buildCoolingUnits(
     fans.push(fan);
     crah.add(fan);
 
-    crah.position.set(2.55, 0.9, z);
+    crah.position.set(layoutKey === "hybrid_cooling_campus" ? 3.15 : 2.55, layoutKey === "liquid_cooling_pod" ? 0.7 : 0.9, z);
     scene.add(crah);
   });
 
-  scene.add(createLabel("CRAH / CRAC", 2.55, 2.35, 2.4));
+  if (layoutKey === "liquid_cooling_pod") {
+    const cduMaterial = new THREE.MeshStandardMaterial({ color: 0x1f3f54, emissive: 0x4e79a7, emissiveIntensity: 0.2, roughness: 0.38, metalness: 0.3 });
+    [-1.2, 1.2].forEach((z) => {
+      const cdu = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.1, 0.8), cduMaterial.clone());
+      cdu.position.set(1.35, 0.55, z);
+      cdu.castShadow = true;
+      register(cdu, "pump");
+      scene.add(cdu);
+    });
+    scene.add(createLabel("liquid CDU", 1.35, 1.55, 1.2));
+  }
+
+  scene.add(createLabel(layoutKey === "liquid_cooling_pod" ? "trim air units" : "CRAH / CRAC", layoutKey === "hybrid_cooling_campus" ? 3.15 : 2.55, 2.35, 2.4));
 }
 
 function buildPlant(
   scene: THREE.Scene,
   register: (object: THREE.Object3D, key: ComponentKey) => void,
   fans: THREE.Object3D[],
+  layoutKey: DataCenterLayoutKey,
 ) {
   const pump = new THREE.Group();
   const pumpBody = new THREE.Mesh(
@@ -614,14 +691,14 @@ function buildPlant(
   pumpFan.position.set(0.52, 0, 0);
   fans.push(pumpFan);
   pump.add(pumpFan);
-  pump.position.set(5.2, 0.9, -2.6);
+  pump.position.set(layoutKey === "liquid_cooling_pod" ? 4.6 : 5.2, 0.9, layoutKey === "liquid_cooling_pod" ? -1.9 : -2.6);
   scene.add(pump);
 
   const chiller = new THREE.Mesh(
     new THREE.BoxGeometry(1.8, 1.2, 1.2),
     new THREE.MeshStandardMaterial({ color: 0x253d39, roughness: 0.42, metalness: 0.28 }),
   );
-  chiller.position.set(5.4, 0.6, 0);
+  chiller.position.set(layoutKey === "liquid_cooling_pod" ? 5.2 : 5.4, 0.6, 0);
   chiller.castShadow = true;
   chiller.receiveShadow = true;
   register(chiller, "chiller");
@@ -632,7 +709,7 @@ function buildPlant(
       new THREE.BoxGeometry(0.05, 0.82, 0.035),
       new THREE.MeshStandardMaterial({ color: 0x79d6c9, emissive: 0x0f8b8d, emissiveIntensity: 0.18 }),
     );
-    coilLine.position.set(4.48, 0.75, -0.42 + i * 0.17);
+    coilLine.position.set(layoutKey === "liquid_cooling_pod" ? 4.28 : 4.48, 0.75, -0.42 + i * 0.17);
     register(coilLine, "chiller");
     scene.add(coilLine);
   }
@@ -641,7 +718,7 @@ function buildPlant(
     new THREE.BoxGeometry(0.04, 0.42, 0.5),
     new THREE.MeshStandardMaterial({ color: 0x111f1d, emissive: 0x79d6c9, emissiveIntensity: 0.12 }),
   );
-  controlPanel.position.set(6.32, 0.78, 0);
+  controlPanel.position.set(layoutKey === "liquid_cooling_pod" ? 6.12 : 6.32, 0.78, 0);
   register(controlPanel, "chiller");
   scene.add(controlPanel);
 
@@ -680,12 +757,30 @@ function buildPlant(
     mist.position.set(-0.15 + i * 0.1, 2.1 + i * 0.18, 0.05 - i * 0.08);
     tower.add(mist);
   }
-  tower.position.set(6.4, 0, 2.6);
+  tower.position.set(layoutKey === "liquid_cooling_pod" ? 6.0 : 6.4, 0, layoutKey === "liquid_cooling_pod" ? 2.1 : 2.6);
   scene.add(tower);
 
-  scene.add(createLabel("pump", 5.2, 1.75, -2.6));
-  scene.add(createLabel("chiller", 5.4, 1.55, 0));
-  scene.add(createLabel("heat rejection", 6.4, 2.45, 2.6));
+  if (layoutKey === "hybrid_cooling_campus") {
+    const dryCoolerMaterial = new THREE.MeshStandardMaterial({ color: 0x2a403b, roughness: 0.44, metalness: 0.25 });
+    [1.35, 2.35, 3.35].forEach((z, index) => {
+      const dryCooler = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.85, 0.72), dryCoolerMaterial.clone());
+      dryCooler.position.set(4.55 + index * 0.95, 0.52, z);
+      dryCooler.castShadow = true;
+      register(dryCooler, "tower");
+      scene.add(dryCooler);
+      const fan = createFan(new THREE.MeshStandardMaterial({ color: 0xdbe7e2, emissive: 0x79d6c9, emissiveIntensity: 0.18 }));
+      fan.scale.setScalar(0.62);
+      fan.rotation.x = Math.PI / 2;
+      fan.position.set(4.55 + index * 0.95, 0.98, z);
+      fans.push(fan);
+      scene.add(fan);
+    });
+    scene.add(createLabel("hybrid dry coolers", 5.55, 1.45, 3.45));
+  }
+
+  scene.add(createLabel("pump", layoutKey === "liquid_cooling_pod" ? 4.6 : 5.2, 1.75, layoutKey === "liquid_cooling_pod" ? -1.9 : -2.6));
+  scene.add(createLabel("chiller", layoutKey === "liquid_cooling_pod" ? 5.2 : 5.4, 1.55, 0));
+  scene.add(createLabel("heat rejection", layoutKey === "liquid_cooling_pod" ? 6.0 : 6.4, 2.45, layoutKey === "liquid_cooling_pod" ? 2.1 : 2.6));
 }
 
 function buildGrid(
@@ -730,34 +825,45 @@ function buildGrid(
   scene.add(gridGroup);
 }
 
-function buildFlow(scene: THREE.Scene, particles: FlowParticle[]) {
+function buildFlow(scene: THREE.Scene, particles: FlowParticle[], layoutKey: DataCenterLayoutKey) {
   const coldMaterial = new THREE.MeshStandardMaterial({ color: 0x79d6c9, emissive: 0x0f8b8d, emissiveIntensity: 0.72 });
   const hotMaterial = new THREE.MeshStandardMaterial({ color: 0xf6a94c, emissive: 0xc16a15, emissiveIntensity: 0.65 });
   const waterMaterial = new THREE.MeshStandardMaterial({ color: 0x4e79a7, emissive: 0x4e79a7, emissiveIntensity: 0.5 });
+  const coldCount = layoutKey === "liquid_cooling_pod" ? 20 : layoutKey === "hybrid_cooling_campus" ? 46 : 36;
+  const hotCount = layoutKey === "liquid_cooling_pod" ? 34 : layoutKey === "hybrid_cooling_campus" ? 32 : 24;
+  const waterCount = layoutKey === "liquid_cooling_pod" ? 46 : layoutKey === "hybrid_cooling_campus" ? 34 : 24;
 
-  for (let i = 0; i < 36; i += 1) {
+  for (let i = 0; i < coldCount; i += 1) {
     addParticle(scene, particles, coldMaterial.clone(), new THREE.Vector3(2.0, 0.55 + (i % 4) * 0.18, 0), new THREE.Vector3(-5.3, 0.55 + (i % 4) * 0.18, 0), i / 36, 0.18, "cold");
   }
 
-  for (let i = 0; i < 24; i += 1) {
-    const z = i % 2 === 0 ? -2.55 : 2.55;
+  for (let i = 0; i < hotCount; i += 1) {
+    const hotRows = layoutKey === "liquid_cooling_pod" ? [-2.9, -1.35, 1.35, 2.9] : [-2.55, 2.55];
+    const z = hotRows[i % hotRows.length];
     addParticle(scene, particles, hotMaterial.clone(), new THREE.Vector3(-5.3, 1.85, z), new THREE.Vector3(2.4, 1.5, z), i / 24, 0.14, "hot");
   }
 
-  for (let i = 0; i < 24; i += 1) {
-    const z = i % 2 === 0 ? -1.8 : 1.8;
-    addParticle(scene, particles, waterMaterial.clone(), new THREE.Vector3(3.2, 0.35, z), new THREE.Vector3(5.8, 0.35, z), i / 24, 0.12, "water");
+  for (let i = 0; i < waterCount; i += 1) {
+    const waterRows = layoutKey === "liquid_cooling_pod" ? [-2.6, -1.2, 1.2, 2.6] : [-1.8, 1.8];
+    const z = waterRows[i % waterRows.length];
+    addParticle(scene, particles, waterMaterial.clone(), new THREE.Vector3(layoutKey === "liquid_cooling_pod" ? 1.35 : 3.2, 0.35, z), new THREE.Vector3(5.8, 0.35, z), i / 24, 0.12, "water");
   }
 }
 
-function buildLoopPipes(scene: THREE.Scene) {
+function buildLoopPipes(scene: THREE.Scene, layoutKey: DataCenterLayoutKey) {
   const pipeMaterial = new THREE.MeshStandardMaterial({ color: 0x4e79a7, roughness: 0.35, metalness: 0.35 });
-  [
+  const pipeSegments = layoutKey === "liquid_cooling_pod" ? [
+    [1.35, 0.25, -2.6, 4.6, 0.25, -1.9],
+    [1.35, 0.25, 2.6, 4.6, 0.25, -1.9],
+    [4.6, 0.25, -1.9, 5.2, 0.25, 0],
+    [5.2, 0.25, 0, 6.0, 0.25, 2.1],
+  ] : [
     [3.4, 0.25, -2.6, 5.2, 0.25, -2.6],
     [5.2, 0.25, -2.6, 5.4, 0.25, 0],
     [5.4, 0.25, 0, 6.4, 0.25, 2.6],
     [6.4, 0.25, 2.6, 3.4, 0.25, 2.4],
-  ].forEach(([x1, y1, z1, x2, y2, z2]) => {
+  ];
+  pipeSegments.forEach(([x1, y1, z1, x2, y2, z2]) => {
     scene.add(createPipe(new THREE.Vector3(x1, y1, z1), new THREE.Vector3(x2, y2, z2), pipeMaterial.clone()));
   });
 }
