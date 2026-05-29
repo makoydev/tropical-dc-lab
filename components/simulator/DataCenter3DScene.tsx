@@ -15,11 +15,12 @@ interface DataCenter3DSceneProps {
 }
 
 interface FlowParticle {
-  mesh: THREE.Mesh;
+  mesh: THREE.Mesh<THREE.SphereGeometry, THREE.MeshStandardMaterial>;
   start: THREE.Vector3;
   end: THREE.Vector3;
   offset: number;
   speed: number;
+  kind: "cold" | "hot" | "water";
 }
 
 export function DataCenter3DScene({ activeKey, inputs, outputs, onSelect }: DataCenter3DSceneProps) {
@@ -80,6 +81,7 @@ export function DataCenter3DScene({ activeKey, inputs, outputs, onSelect }: Data
     const fans: THREE.Object3D[] = [];
     const pulses: THREE.Mesh<THREE.SphereGeometry, THREE.MeshStandardMaterial>[] = [];
     const flowParticles: FlowParticle[] = [];
+    const thermalPlumes: THREE.Mesh<THREE.CylinderGeometry, THREE.MeshStandardMaterial>[] = [];
 
     const register = (object: THREE.Object3D, key: ComponentKey) => {
       object.userData.componentKey = key;
@@ -89,7 +91,7 @@ export function DataCenter3DScene({ activeKey, inputs, outputs, onSelect }: Data
 
     buildRoom(scene);
     buildRackRows(scene, register);
-    buildAisles(scene, register);
+    buildAisles(scene, register, thermalPlumes);
     buildCoolingUnits(scene, register, fans);
     buildPlant(scene, register, fans);
     buildGrid(scene, register, pulses);
@@ -149,6 +151,8 @@ export function DataCenter3DScene({ activeKey, inputs, outputs, onSelect }: Data
       lastTime = elapsed;
       const loadRatio = THREE.MathUtils.clamp(inputsRef.current.itLoadKw / 5000, 0.25, 1);
       const puePressure = THREE.MathUtils.clamp(outputsRef.current.pue - 1, 0.15, 0.8);
+      const coolingStress = THREE.MathUtils.clamp(outputsRef.current.coolingPowerKw / outputsRef.current.itPowerKw, 0.05, 0.45);
+      const fanStress = THREE.MathUtils.clamp(outputsRef.current.fanPowerKw / outputsRef.current.itPowerKw, 0.02, 0.2);
 
       if (activeKeyRef.current !== focusedKey) {
         focusedKey = activeKeyRef.current;
@@ -166,10 +170,19 @@ export function DataCenter3DScene({ activeKey, inputs, outputs, onSelect }: Data
       });
 
       flowParticles.forEach((particle) => {
-        particle.offset = (particle.offset + delta * particle.speed * (0.65 + loadRatio)) % 1;
+        const kindBoost = particle.kind === "hot" ? 1 + puePressure : particle.kind === "water" ? 1 + coolingStress : 1 + fanStress;
+        particle.offset = (particle.offset + delta * particle.speed * (0.65 + loadRatio + kindBoost * 0.35)) % 1;
         particle.mesh.position.lerpVectors(particle.start, particle.end, particle.offset);
-        const scale = 0.75 + Math.sin((particle.offset + elapsed) * Math.PI * 2) * 0.18;
+        const baseScale = particle.kind === "hot" ? 0.75 + puePressure * 1.4 : particle.kind === "water" ? 0.78 + coolingStress * 1.2 : 0.72 + fanStress * 2.2;
+        const scale = baseScale + Math.sin((particle.offset + elapsed) * Math.PI * 2) * 0.18;
         particle.mesh.scale.setScalar(scale);
+        particle.mesh.material.opacity = particle.kind === "hot" ? 0.45 + puePressure * 0.5 : particle.kind === "water" ? 0.5 + coolingStress : 0.5 + fanStress * 1.8;
+      });
+
+      thermalPlumes.forEach((plume, index) => {
+        const phase = Math.sin(elapsed * (1.1 + loadRatio) + index * 0.7) * 0.5 + 0.5;
+        plume.scale.setScalar(0.88 + phase * 0.18 + puePressure * 0.55);
+        plume.material.opacity = 0.08 + puePressure * 0.28 + phase * 0.04;
       });
 
       pulses.forEach((pulse, index) => {
@@ -456,7 +469,11 @@ function buildRackRows(scene: THREE.Scene, register: (object: THREE.Object3D, ke
   scene.add(rackGroup);
 }
 
-function buildAisles(scene: THREE.Scene, register: (object: THREE.Object3D, key: ComponentKey) => void) {
+function buildAisles(
+  scene: THREE.Scene,
+  register: (object: THREE.Object3D, key: ComponentKey) => void,
+  thermalPlumes: THREE.Mesh<THREE.CylinderGeometry, THREE.MeshStandardMaterial>[],
+) {
   const cold = new THREE.Mesh(
     new THREE.BoxGeometry(6.7, 0.04, 0.9),
     new THREE.MeshStandardMaterial({ color: 0x0f8b8d, emissive: 0x0f8b8d, emissiveIntensity: 0.24, transparent: true, opacity: 0.42 }),
@@ -516,6 +533,7 @@ function buildAisles(scene: THREE.Scene, register: (object: THREE.Object3D, key:
       );
       plume.position.set(-4.8 + i * 1.2, 1.65 + i * 0.05, z);
       register(plume, "hotAisle");
+      thermalPlumes.push(plume);
       scene.add(plume);
     }
   });
@@ -718,17 +736,17 @@ function buildFlow(scene: THREE.Scene, particles: FlowParticle[]) {
   const waterMaterial = new THREE.MeshStandardMaterial({ color: 0x4e79a7, emissive: 0x4e79a7, emissiveIntensity: 0.5 });
 
   for (let i = 0; i < 36; i += 1) {
-    addParticle(scene, particles, coldMaterial.clone(), new THREE.Vector3(2.0, 0.55 + (i % 4) * 0.18, 0), new THREE.Vector3(-5.3, 0.55 + (i % 4) * 0.18, 0), i / 36, 0.18);
+    addParticle(scene, particles, coldMaterial.clone(), new THREE.Vector3(2.0, 0.55 + (i % 4) * 0.18, 0), new THREE.Vector3(-5.3, 0.55 + (i % 4) * 0.18, 0), i / 36, 0.18, "cold");
   }
 
   for (let i = 0; i < 24; i += 1) {
     const z = i % 2 === 0 ? -2.55 : 2.55;
-    addParticle(scene, particles, hotMaterial.clone(), new THREE.Vector3(-5.3, 1.85, z), new THREE.Vector3(2.4, 1.5, z), i / 24, 0.14);
+    addParticle(scene, particles, hotMaterial.clone(), new THREE.Vector3(-5.3, 1.85, z), new THREE.Vector3(2.4, 1.5, z), i / 24, 0.14, "hot");
   }
 
   for (let i = 0; i < 24; i += 1) {
     const z = i % 2 === 0 ? -1.8 : 1.8;
-    addParticle(scene, particles, waterMaterial.clone(), new THREE.Vector3(3.2, 0.35, z), new THREE.Vector3(5.8, 0.35, z), i / 24, 0.12);
+    addParticle(scene, particles, waterMaterial.clone(), new THREE.Vector3(3.2, 0.35, z), new THREE.Vector3(5.8, 0.35, z), i / 24, 0.12, "water");
   }
 }
 
@@ -752,11 +770,13 @@ function addParticle(
   end: THREE.Vector3,
   offset: number,
   speed: number,
+  kind: FlowParticle["kind"],
 ) {
   const particle = new THREE.Mesh(new THREE.SphereGeometry(0.07, 12, 12), material);
+  particle.material.transparent = true;
   particle.position.copy(start);
   scene.add(particle);
-  particles.push({ mesh: particle, start, end, offset, speed });
+  particles.push({ mesh: particle, start, end, offset, speed, kind });
 }
 
 function createFan(material: THREE.MeshStandardMaterial) {
