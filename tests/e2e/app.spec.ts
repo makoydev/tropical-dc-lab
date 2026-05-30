@@ -28,6 +28,11 @@ test("simulator renders the 3D data centre and updates controls", async ({ page 
   await expect(page.getByLabel("Rack Density")).toHaveValue("50");
   await expect.poll(() => canvasHasRenderedPixels(page)).toBe(true);
 
+  await page.getByRole("button", { name: "Start tour" }).click();
+  await expect(page.getByText("Inspecting: IT Racks")).toBeVisible();
+  await page.getByRole("button", { exact: true, name: "Next" }).click();
+  await expect(page.getByText("Inspecting: Cold Aisle")).toBeVisible();
+
   await page.getByRole("button", { name: "Peak tropical day" }).click();
   await expect(page.getByText("4,200 kW").first()).toBeVisible();
   await expect(page.getByText("Overhead delta")).toBeVisible();

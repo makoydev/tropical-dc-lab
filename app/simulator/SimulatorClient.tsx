@@ -10,14 +10,33 @@ import { ComponentInfoPanel, type ComponentKey } from "@/components/simulator/Da
 import { MetricCards } from "@/components/simulator/MetricCards";
 import { EnergyBreakdownChart } from "@/components/charts/EnergyBreakdownChart";
 
+const tourOrder: ComponentKey[] = ["racks", "coldAisle", "hotAisle", "crah", "pump", "chiller", "tower", "grid"];
+
 export default function SimulatorClient() {
   const [inputs, setInputs] = useState<SimulationInputs>(defaultInputs);
   const [activeComponent, setActiveComponent] = useState<ComponentKey>("racks");
   const [layoutKey, setLayoutKey] = useState<DataCenterLayoutKey>("contained_air_hall");
+  const [tourActive, setTourActive] = useState(false);
   const outputs = useMemo(() => calculateSimulation(inputs), [inputs]);
+  const tourIndex = Math.max(0, tourOrder.indexOf(activeComponent));
+  const setSelectedComponent = (component: ComponentKey) => {
+    setActiveComponent(component);
+  };
+  const startTour = () => {
+    setTourActive(true);
+    setSelectedComponent("racks");
+  };
+  const stopTour = () => {
+    setTourActive(false);
+  };
+  const stepTour = (direction: 1 | -1) => {
+    setTourActive(true);
+    const nextIndex = (tourIndex + direction + tourOrder.length) % tourOrder.length;
+    setSelectedComponent(tourOrder[nextIndex]);
+  };
   const applyLayout = (nextLayout: DataCenterLayoutKey) => {
     setLayoutKey(nextLayout);
-    setActiveComponent("racks");
+    setSelectedComponent("racks");
 
     if (nextLayout === "contained_air_hall") {
       setInputs({
@@ -152,7 +171,7 @@ export default function SimulatorClient() {
         </div>
       </div>
 
-      <DataCenter3DScene activeKey={activeComponent} inputs={inputs} layoutKey={layoutKey} onSelect={setActiveComponent} outputs={outputs} />
+      <DataCenter3DScene activeKey={activeComponent} inputs={inputs} layoutKey={layoutKey} onSelect={setSelectedComponent} outputs={outputs} />
 
       <div className="mx-auto grid max-w-7xl gap-6 px-4 py-6 sm:px-6 xl:grid-cols-[0.78fr_1.22fr]">
         <section className="space-y-5">
@@ -160,6 +179,25 @@ export default function SimulatorClient() {
           <EnergyBreakdownChart outputs={outputs} />
         </section>
         <aside className="space-y-5">
+          <div className="rounded-lg border border-[var(--line)] bg-white p-5 shadow-sm">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold text-[var(--ink)]">Guided tour</h2>
+                <p className="mt-1 text-sm text-[var(--muted)]">
+                  Step through the data-centre flow from IT load to heat rejection.
+                </p>
+              </div>
+              <span className={`rounded px-2 py-1 text-xs font-semibold ${tourActive ? "bg-[#e8f7f5] text-[var(--accent-strong)]" : "bg-[var(--panel-strong)] text-[var(--muted)]"}`}>
+                {tourIndex + 1}/{tourOrder.length}
+              </span>
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <QuickButton label={tourActive ? "Restart tour" : "Start tour"} onClick={startTour} />
+              <QuickButton label="Previous" onClick={() => stepTour(-1)} />
+              <QuickButton label="Next" onClick={() => stepTour(1)} />
+              <QuickButton label="Stop" onClick={stopTour} />
+            </div>
+          </div>
           <div className="rounded-lg border border-[var(--line)] bg-white p-5 shadow-sm">
             <h2 className="text-base font-semibold text-[var(--ink)]">Quick stress tests</h2>
             <div className="mt-4 grid grid-cols-2 gap-2">
